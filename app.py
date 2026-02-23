@@ -440,8 +440,8 @@ for _t in st.session_state.tasks:
 
 
 # ─── Helper: show task detail panel ───────────────────────────────────────────
-def _show_task_detail(task):
-    """Render the task detail panel with metrics and clipboard copy."""
+def _show_task_detail(task, idx, tasks_list):
+    """Render task detail panel with metrics, edit controls, and clipboard copy."""
     qi = quadrant_info(task["importance"], task["urgency"])
     days_left = (date.fromisoformat(task["deadline"]) - date.today()).days
 
@@ -467,8 +467,42 @@ def _show_task_detail(task):
     else:
         st.caption("No description.")
 
-    # Clipboard copy section
-    st.markdown("**📋 Copy to clipboard**")
+    # ── Edit position (Importance + Deadline → Urgency auto-recalc) ────────
+    st.markdown("**✏️ Edit Position** — adjust values below, then Update or Revert")
+    ea, eb = st.columns(2)
+    with ea:
+        new_imp = st.slider("Importance", 1, 10, task["importance"], key=f"eimp_{idx}")
+    with eb:
+        new_deadline = st.date_input("Deadline", value=date.fromisoformat(task["deadline"]), key=f"edl_{idx}")
+
+    new_urg = calc_urgency(new_deadline.isoformat())
+    imp_changed = new_imp != task["importance"]
+    dl_changed = new_deadline.isoformat() != task["deadline"]
+
+    if imp_changed or dl_changed:
+        new_qi = quadrant_info(new_imp, new_urg)
+        st.warning(
+            f"Preview: Importance {new_imp} · Urgency {new_urg:.1f} "
+            f"→ {new_qi['emoji']} **{new_qi['label']}**"
+        )
+        uc, rc = st.columns(2)
+        with uc:
+            if st.button("✅ Update", type="primary", use_container_width=True, key="btn_update"):
+                tasks_list[idx]["importance"] = new_imp
+                tasks_list[idx]["deadline"] = new_deadline.isoformat()
+                tasks_list[idx]["urgency"] = new_urg
+                save_tasks(tasks_list)
+                for k in [f"eimp_{idx}", f"edl_{idx}"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
+        with rc:
+            if st.button("↩️ Revert", use_container_width=True, key="btn_revert"):
+                for k in [f"eimp_{idx}", f"edl_{idx}"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+    # ── Clipboard copy ─────────────────────────────────────────────────────
+    st.markdown("**📋 Copy to clipboard** — click the copy icon (top-right of the box)")
     st.code(_task_summary_text(task), language=None)
 
 
@@ -501,7 +535,7 @@ with st.sidebar:
             else:
                 st.error("Task name is required.")
 
-    # ── Task list (clickable)
+    # ── Task list (expandable with details)
     st.divider()
     st.subheader(f"📋 Tasks ({len(st.session_state.tasks)})")
 
@@ -509,23 +543,28 @@ with st.sidebar:
         qi = quadrant_info(task["importance"], task["urgency"])
         d_text = _d_day_text(task["deadline"])
 
-        c1, c2 = st.columns([5, 1])
-        with c1:
-            if st.button(
-                f"{qi['emoji']} {task['name']}",
-                key=f"sidebar_task_{i}",
-                use_container_width=True,
-                help=f"Imp {task['importance']} · Urg {task['urgency']:.1f} · {d_text}",
-            ):
-                st.session_state.selected_task_idx = i
-                st.rerun()
-        with c2:
-            if st.button("🗑", key=f"del_{i}", help="Delete"):
-                st.session_state.tasks.pop(i)
-                if "selected_task_idx" in st.session_state:
-                    del st.session_state["selected_task_idx"]
-                save_tasks(st.session_state.tasks)
-                st.rerun()
+        with st.expander(f"{qi['emoji']} {task['name']}  ·  {d_text}"):
+            st.caption(
+                f"Imp {task['importance']} · Urg {task['urgency']:.1f} · "
+                f"Deadline: {task['deadline']}"
+            )
+            if task.get("description"):
+                st.markdown(f"*{task['description']}*")
+            else:
+                st.caption("No description.")
+
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                if st.button("📌 Select", key=f"sel_{i}", use_container_width=True):
+                    st.session_state.selected_task_idx = i
+                    st.rerun()
+            with sc2:
+                if st.button("🗑 Delete", key=f"del_{i}", use_container_width=True):
+                    st.session_state.tasks.pop(i)
+                    if "selected_task_idx" in st.session_state:
+                        del st.session_state["selected_task_idx"]
+                    save_tasks(st.session_state.tasks)
+                    st.rerun()
 
     # ── Reset Section
     st.divider()
@@ -732,11 +771,20 @@ if clicked is not None:
     except (TypeError, ValueError):
         pass
 
+# ── Clean up stale edit widget state on task switch ──────────────────────────
+if "selected_task_idx" in st.session_state:
+    _cur_idx = st.session_state.selected_task_idx
+    _prev_idx = st.session_state.get("_prev_edit_idx", -1)
+    if _cur_idx != _prev_idx:
+        for _k in [f"eimp_{_prev_idx}", f"edl_{_prev_idx}"]:
+            st.session_state.pop(_k, None)
+        st.session_state._prev_edit_idx = _cur_idx
+
 # ── Task Detail Panel (shown on chart click or sidebar click) ─────────────────
 if tasks and "selected_task_idx" in st.session_state:
     idx = st.session_state.selected_task_idx
     if 0 <= idx < len(tasks):
-        _show_task_detail(tasks[idx])
+        _show_task_detail(tasks[idx], idx, tasks)
 
 elif not tasks:
     st.info("👈 Add your first task from the sidebar!")
