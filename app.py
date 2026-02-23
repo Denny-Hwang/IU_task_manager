@@ -24,7 +24,7 @@ QUADRANT_META = {
         "color_alpha": "rgba(220,38,38,0.3)",
         "fill": "FFCCCC",
         "label": "Do First",
-        "sub": "긴급 & 중요",
+        "sub": "Urgent & Important",
         "emoji": "🔴",
     },
     "delegate": {
@@ -33,7 +33,7 @@ QUADRANT_META = {
         "color_alpha": "rgba(234,88,12,0.3)",
         "fill": "FFE0CC",
         "label": "Delegate",
-        "sub": "긴급 & 덜 중요",
+        "sub": "Urgent & Less Important",
         "emoji": "🟠",
     },
     "schedule": {
@@ -42,7 +42,7 @@ QUADRANT_META = {
         "color_alpha": "rgba(37,99,235,0.3)",
         "fill": "CCE0FF",
         "label": "Schedule",
-        "sub": "덜 긴급 & 중요",
+        "sub": "Less Urgent & Important",
         "emoji": "🔵",
     },
     "eliminate": {
@@ -51,7 +51,7 @@ QUADRANT_META = {
         "color_alpha": "rgba(22,163,74,0.3)",
         "fill": "CCFFCC",
         "label": "Eliminate",
-        "sub": "덜 긴급 & 덜 중요",
+        "sub": "Less Urgent & Less Important",
         "emoji": "🟢",
     },
 }
@@ -97,9 +97,13 @@ def quadrant_info(importance, urgency):
     return QUADRANT_META[quadrant_key(importance, urgency)]
 
 
+def _d_day_text(deadline_str):
+    days = (date.fromisoformat(deadline_str) - date.today()).days
+    return f"D-{days}" if days >= 0 else f"D+{abs(days)}"
+
+
 # ─── Text Helpers ──────────────────────────────────────────────────────────────
 def _display_width(s):
-    """Calculate display width considering CJK double-width chars."""
     w = 0
     for ch in s:
         if unicodedata.east_asian_width(ch) in ("W", "F"):
@@ -110,7 +114,6 @@ def _display_width(s):
 
 
 def _truncate(s, max_w):
-    """Truncate string to max display width, adding ellipsis if needed."""
     w = 0
     for i, ch in enumerate(s):
         cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
@@ -121,17 +124,13 @@ def _truncate(s, max_w):
 
 
 def format_block_label(name, deadline_str):
-    """Format task name + D-day to fit inside chart block (2 lines, \\n separated)."""
+    """Format task name + D-day to fit inside chart block (2 lines, newline separated)."""
     MAX_WIDTH = 12
+    d_text = _d_day_text(deadline_str)
 
-    days = (date.fromisoformat(deadline_str) - date.today()).days
-    d_text = f"D-{days}" if days >= 0 else f"D+{abs(days)}"
-
-    name_w = _display_width(name)
-    if name_w <= MAX_WIDTH:
+    if _display_width(name) <= MAX_WIDTH:
         return f"{name}\n{d_text}"
 
-    # Find the best space-break that balances both lines
     candidates = []
     for i, ch in enumerate(name):
         if ch == " " and 0 < i < len(name) - 1:
@@ -141,7 +140,6 @@ def format_block_label(name, deadline_str):
                 candidates.append((i, abs(lw - rw)))
 
     if candidates:
-        # On tie, prefer later break (longer line1, more natural)
         best_break = min(candidates, key=lambda x: (x[1], -x[0]))[0]
         line1 = name[:best_break]
         line2 = name[best_break + 1:]
@@ -149,9 +147,23 @@ def format_block_label(name, deadline_str):
             line2 = _truncate(line2, MAX_WIDTH - 1)
         return f"{line1}\n{line2}"
 
-    # No good space break — hard truncate
-    line1 = _truncate(name, MAX_WIDTH)
-    return f"{line1}\n{d_text}"
+    return f"{_truncate(name, MAX_WIDTH)}\n{d_text}"
+
+
+def _task_summary_text(task):
+    """Build plain-text summary for clipboard copy."""
+    qi = quadrant_info(task["importance"], task["urgency"])
+    d_text = _d_day_text(task["deadline"])
+    lines = [
+        f"Task: {task['name']}",
+        f"Importance: {task['importance']}/10",
+        f"Urgency: {task['urgency']:.1f}/10",
+        f"Deadline: {task['deadline']} ({d_text})",
+        f"Quadrant: {qi['emoji']} {qi['label']}",
+    ]
+    if task.get("description"):
+        lines.append(f"Description: {task['description']}")
+    return "\n".join(lines)
 
 
 # ─── Example Tasks ─────────────────────────────────────────────────────────────
@@ -159,57 +171,57 @@ def generate_example_tasks():
     today = date.today()
     examples = [
         {
-            "name": "서버 장애 대응",
-            "description": "프로덕션 서버 긴급 복구 — CPU 사용률 95% 초과 알림 발생. 즉시 원인 분석 및 조치 필요.",
+            "name": "Server Outage Response",
+            "description": "Production server emergency — CPU usage exceeded 95%. Immediate diagnosis and resolution required.",
             "importance": 9,
             "deadline": (today + timedelta(days=1)).isoformat(),
             "color": "#E74C3C",
         },
         {
-            "name": "클라이언트 미팅 준비",
-            "description": "목요일 클라이언트 프레젠테이션 자료 준비. 제안서 및 데모 시나리오 완성.",
+            "name": "Client Meeting Prep",
+            "description": "Prepare Thursday client presentation. Finalize proposal and demo scenario.",
             "importance": 8,
             "deadline": (today + timedelta(days=3)).isoformat(),
             "color": "#C0392B",
         },
         {
-            "name": "이메일 회신",
-            "description": "팀장님 이메일 및 협업 부서 문의 회신. 단순 확인/전달 업무.",
+            "name": "Reply to Emails",
+            "description": "Reply to manager's email and cross-team inquiries. Simple confirm/forward tasks.",
             "importance": 3,
             "deadline": (today + timedelta(days=2)).isoformat(),
             "color": "#F39C12",
         },
         {
-            "name": "비용 정산서 제출",
-            "description": "지난달 출장비 및 경비 정산서를 경영지원팀에 제출.",
+            "name": "Submit Expense Report",
+            "description": "Submit last month's travel and expense report to the finance team.",
             "importance": 4,
             "deadline": (today + timedelta(days=4)).isoformat(),
             "color": "#E67E22",
         },
         {
-            "name": "신규 기능 설계",
-            "description": "Q2 로드맵 핵심 기능 아키텍처 설계 문서 작성. 기술 스택 선정 포함.",
+            "name": "New Feature Design",
+            "description": "Q2 roadmap core feature architecture design. Includes tech stack selection.",
             "importance": 9,
             "deadline": (today + timedelta(days=21)).isoformat(),
             "color": "#3498DB",
         },
         {
-            "name": "기술 부채 정리",
-            "description": "레거시 코드 리팩토링 및 테스트 커버리지 개선 계획 수립.",
+            "name": "Tech Debt Cleanup",
+            "description": "Plan legacy code refactoring and test coverage improvement.",
             "importance": 7,
             "deadline": (today + timedelta(days=18)).isoformat(),
             "color": "#2980B9",
         },
         {
-            "name": "사무용품 정리",
-            "description": "책상 정리 및 불필요한 문서 폐기. 시간 날 때 처리.",
+            "name": "Organize Supplies",
+            "description": "Tidy desk and discard unnecessary documents. Handle when free.",
             "importance": 2,
             "deadline": (today + timedelta(days=25)).isoformat(),
             "color": "#2ECC71",
         },
         {
-            "name": "뉴스레터 구독 정리",
-            "description": "안 읽는 뉴스레터 구독 취소 및 정보 채널 정리.",
+            "name": "Unsubscribe Newsletters",
+            "description": "Cancel unread newsletter subscriptions and clean up info channels.",
             "importance": 1,
             "deadline": (today + timedelta(days=28)).isoformat(),
             "color": "#1ABC9C",
@@ -236,7 +248,7 @@ def build_excel(tasks):
         bottom=Side(style="thin", color="CCCCCC"),
     )
 
-    # ── Sheet 1: Task Summary ──────────────────────────────────────────────────
+    # ── Sheet 1: Task Summary
     ws1 = wb.active
     ws1.title = "Tasks"
     headers1 = ["Task Name", "Description", "Importance", "Urgency", "Deadline", "D-Day", "Quadrant"]
@@ -249,8 +261,7 @@ def build_excel(tasks):
 
     for i, task in enumerate(tasks, 2):
         qi = quadrant_info(task["importance"], task["urgency"])
-        days_left = (date.fromisoformat(task["deadline"]) - date.today()).days
-        d_text = f"D-{days_left}" if days_left >= 0 else f"D+{abs(days_left)}"
+        d_text = _d_day_text(task["deadline"])
         row = [
             task["name"],
             task.get("description", ""),
@@ -273,14 +284,12 @@ def build_excel(tasks):
     ws1.column_dimensions["F"].width = 10
     ws1.column_dimensions["G"].width = 16
 
-    # ── Sheet 2: Gantt Chart ───────────────────────────────────────────────────
+    # ── Sheet 2: Gantt Chart
     ws2 = wb.create_sheet("Gantt Chart")
-
     today = date.today()
     if tasks:
         deadlines = [date.fromisoformat(t["deadline"]) for t in tasks]
-        max_dl = max(deadlines)
-        end_date = max(max_dl, today) + timedelta(days=3)
+        end_date = max(max(deadlines), today) + timedelta(days=3)
     else:
         end_date = today + timedelta(days=30)
 
@@ -290,8 +299,7 @@ def build_excel(tasks):
         date_range.append(cur)
         cur += timedelta(days=1)
 
-    fixed_headers = ["Task", "Quadrant", "Deadline"]
-    for j, h in enumerate(fixed_headers, 1):
+    for j, h in enumerate(["Task", "Quadrant", "Deadline"], 1):
         cell = ws2.cell(1, j, h)
         cell.font = header_font
         cell.fill = header_fill
@@ -314,17 +322,14 @@ def build_excel(tasks):
     ws2.column_dimensions["B"].width = 14
     ws2.column_dimensions["C"].width = 12
 
-    sorted_gantt = sorted(tasks, key=lambda t: t["deadline"])
-    for i, task in enumerate(sorted_gantt, 2):
+    for i, task in enumerate(sorted(tasks, key=lambda t: t["deadline"]), 2):
         qk = quadrant_key(task["importance"], task["urgency"])
         qi = QUADRANT_META[qk]
         fill = PatternFill(start_color=qi["fill"], end_color=qi["fill"], fill_type="solid")
         dl = date.fromisoformat(task["deadline"])
-
         ws2.cell(i, 1, task["name"]).border = thin_border
         ws2.cell(i, 2, qi["label"]).border = thin_border
         ws2.cell(i, 3, task["deadline"]).border = thin_border
-
         for j, d in enumerate(date_range):
             col = j + 4
             cell = ws2.cell(i, col)
@@ -343,28 +348,25 @@ def build_excel(tasks):
                     bottom=Side(style="thin", color="CCCCCC"),
                 )
 
-    # ── Sheet 3: Milestones ────────────────────────────────────────────────────
+    # ── Sheet 3: Milestones
     ws3 = wb.create_sheet("Milestones")
-    headers3 = ["#", "Milestone", "Deadline", "D-Day", "Status", "Importance", "Urgency", "Quadrant"]
-    for j, h in enumerate(headers3, 1):
+    for j, h in enumerate(["#", "Milestone", "Deadline", "D-Day", "Status", "Importance", "Urgency", "Quadrant"], 1):
         cell = ws3.cell(1, j, h)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_align
         cell.border = thin_border
 
-    sorted_ms = sorted(tasks, key=lambda t: t["deadline"])
     status_fills = {
         "overdue": PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
         "today": PatternFill(start_color="FFE0CC", end_color="FFE0CC", fill_type="solid"),
         "week": PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid"),
         "upcoming": PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid"),
     }
-    for i, task in enumerate(sorted_ms, 2):
+    for i, task in enumerate(sorted(tasks, key=lambda t: t["deadline"]), 2):
         qi = quadrant_info(task["importance"], task["urgency"])
         days_left = (date.fromisoformat(task["deadline"]) - today).days
-        d_text = f"D-{days_left}" if days_left >= 0 else f"D+{abs(days_left)}"
-
+        d_text = _d_day_text(task["deadline"])
         if days_left < 0:
             status, sfill = "Overdue", status_fills["overdue"]
         elif days_left == 0:
@@ -373,7 +375,6 @@ def build_excel(tasks):
             status, sfill = "This Week", status_fills["week"]
         else:
             status, sfill = "Upcoming", status_fills["upcoming"]
-
         row = [i - 1, task["name"], task["deadline"], d_text, status,
                task["importance"], round(task["urgency"], 1), f"{qi['emoji']} {qi['label']}"]
         for j, val in enumerate(row, 1):
@@ -409,17 +410,14 @@ def build_chart_html(chart_option):
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         '<title>Quadrant Task Manager</title>\n'
         '<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>\n'
-        '<style>\n'
-        '  body { margin:0; padding:0; background:#fff; }\n'
-        '  #chart { width:100vw; height:100vh; }\n'
-        '</style>\n'
+        '<style>body{margin:0;padding:0;background:#fff}#chart{width:100vw;height:100vh}</style>\n'
         '</head>\n'
         '<body>\n'
         '<div id="chart"></div>\n'
         '<script>\n'
-        '  var chart = echarts.init(document.getElementById("chart"));\n'
-        f'  chart.setOption({option_json});\n'
-        '  window.addEventListener("resize", function() { chart.resize(); });\n'
+        'var chart=echarts.init(document.getElementById("chart"));\n'
+        f'chart.setOption({option_json});\n'
+        'window.addEventListener("resize",function(){chart.resize()});\n'
         '</script>\n'
         '</body>\n'
         '</html>'
@@ -437,9 +435,41 @@ if "initialized" not in st.session_state:
         st.session_state.tasks = generate_example_tasks()
         st.session_state.demo_mode = True
 
-# Recalculate urgency every render
 for _t in st.session_state.tasks:
     _t["urgency"] = calc_urgency(_t["deadline"])
+
+
+# ─── Helper: show task detail panel ───────────────────────────────────────────
+def _show_task_detail(task):
+    """Render the task detail panel with metrics and clipboard copy."""
+    qi = quadrant_info(task["importance"], task["urgency"])
+    days_left = (date.fromisoformat(task["deadline"]) - date.today()).days
+
+    st.divider()
+    st.subheader(f"{qi['emoji']} {task['name']}")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Importance", f"{task['importance']} / 10")
+    with c2:
+        st.metric("Urgency", f"{task['urgency']:.1f} / 10")
+    with c3:
+        if days_left >= 0:
+            st.metric("D-Day", task["deadline"], delta=f"D-{days_left}")
+        else:
+            st.metric("D-Day", task["deadline"],
+                      delta=f"{abs(days_left)} days overdue", delta_color="inverse")
+    with c4:
+        st.metric("Quadrant", qi["label"])
+
+    if task.get("description"):
+        st.info(task["description"])
+    else:
+        st.caption("No description.")
+
+    # Clipboard copy section
+    st.markdown("**📋 Copy to clipboard**")
+    st.code(_task_summary_text(task), language=None)
 
 
 # ─── Sidebar ───────────────────────────────────────────────────────────────────
@@ -449,11 +479,8 @@ with st.sidebar:
     with st.form("add_task_form", clear_on_submit=True):
         name = st.text_input("Task Name")
         desc = st.text_area("Description", height=80)
-        importance = st.slider("Importance (중요도)", 1, 10, 5)
-        deadline = st.date_input(
-            "Deadline (기한)",
-            value=date.today() + timedelta(days=7),
-        )
+        importance = st.slider("Importance", 1, 10, 5)
+        deadline = st.date_input("Deadline", value=date.today() + timedelta(days=7))
         color = st.color_picker("Block Color", "#4A90D9")
         submitted = st.form_submit_button("Add Task", use_container_width=True)
 
@@ -461,36 +488,37 @@ with st.sidebar:
             if name.strip():
                 if st.session_state.demo_mode:
                     st.session_state.demo_mode = False
-                st.session_state.tasks.append(
-                    {
-                        "name": name.strip(),
-                        "description": desc,
-                        "importance": importance,
-                        "deadline": deadline.isoformat(),
-                        "urgency": calc_urgency(deadline.isoformat()),
-                        "color": color,
-                    }
-                )
+                st.session_state.tasks.append({
+                    "name": name.strip(),
+                    "description": desc,
+                    "importance": importance,
+                    "deadline": deadline.isoformat(),
+                    "urgency": calc_urgency(deadline.isoformat()),
+                    "color": color,
+                })
                 save_tasks(st.session_state.tasks)
                 st.rerun()
             else:
                 st.error("Task name is required.")
 
-    # ── Task list ──────────────────────────────────────────────────────────────
+    # ── Task list (clickable)
     st.divider()
     st.subheader(f"📋 Tasks ({len(st.session_state.tasks)})")
 
     for i, task in enumerate(st.session_state.tasks):
         qi = quadrant_info(task["importance"], task["urgency"])
+        d_text = _d_day_text(task["deadline"])
+
         c1, c2 = st.columns([5, 1])
         with c1:
-            st.markdown(f"{qi['emoji']} **{task['name']}**")
-            days_left = (date.fromisoformat(task["deadline"]) - date.today()).days
-            due_text = f"D-{days_left}" if days_left >= 0 else f"D+{abs(days_left)}"
-            st.caption(
-                f"Imp {task['importance']} · Urg {task['urgency']:.1f} · "
-                f"{task['deadline']} ({due_text})"
-            )
+            if st.button(
+                f"{qi['emoji']} {task['name']}",
+                key=f"sidebar_task_{i}",
+                use_container_width=True,
+                help=f"Imp {task['importance']} · Urg {task['urgency']:.1f} · {d_text}",
+            ):
+                st.session_state.selected_task_idx = i
+                st.rerun()
         with c2:
             if st.button("🗑", key=f"del_{i}", help="Delete"):
                 st.session_state.tasks.pop(i)
@@ -499,7 +527,7 @@ with st.sidebar:
                 save_tasks(st.session_state.tasks)
                 st.rerun()
 
-    # ── Reset Section ──────────────────────────────────────────────────────────
+    # ── Reset Section
     st.divider()
     rc1, rc2 = st.columns(2)
     with rc1:
@@ -523,61 +551,29 @@ with st.sidebar:
 
 # ─── Main Area ─────────────────────────────────────────────────────────────────
 st.title("📊 Quadrant Task Manager")
-st.caption(
-    "Importance (중요도) × Urgency (긴급도) · "
-    "블록을 탭/클릭하면 상세 정보가 표시됩니다"
-)
+st.caption("Importance × Urgency — Tap or click a task block to view details")
 
-# ── Demo Mode Banner ───────────────────────────────────────────────────────────
-if st.session_state.demo_mode:
-    with st.container(border=True):
-        st.markdown(
-            "#### 🎯 예제 모드\n"
-            "현재 **예제 Task**들이 표시되어 있습니다. "
-            "차트의 블록을 클릭해보고, 각 사분면의 의미를 확인해보세요!\n\n"
-            "| 사분면 | 의미 | 기준 |\n"
-            "|:---:|:---:|:---:|\n"
-            "| 🔴 **Do First** | 즉시 처리 | 긴급 + 중요 |\n"
-            "| 🟠 **Delegate** | 위임 가능 | 긴급 + 덜 중요 |\n"
-            "| 🔵 **Schedule** | 일정 계획 | 덜 긴급 + 중요 |\n"
-            "| 🟢 **Eliminate** | 제거 고려 | 덜 긴급 + 덜 중요 |\n\n"
-            "💡 **Urgency**(긴급도)는 **Deadline**(기한)으로부터 자동 계산됩니다. "
-            "(D-0 → 10, D-30+ → 1)"
-        )
-        bc1, bc2, _ = st.columns([1, 1, 3])
-        with bc1:
-            if st.button("🚀 **새로 시작하기**", use_container_width=True, type="primary"):
-                st.session_state.tasks = []
-                st.session_state.demo_mode = False
-                save_tasks([])
-                st.rerun()
-        with bc2:
-            if st.button("✏️ 예제에 이어서 작업", use_container_width=True):
-                st.session_state.demo_mode = False
-                save_tasks(st.session_state.tasks)
-                st.rerun()
-
-# ── Build ECharts ──────────────────────────────────────────────────────────────
+# ── Build ECharts (CHART FIRST) ───────────────────────────────────────────────
 tasks = st.session_state.tasks
 
-# Prepare scatter data for task blocks
 scatter_data = []
 for t in tasks:
     qi = quadrant_info(t["importance"], t["urgency"])
     label_text = format_block_label(t["name"], t["deadline"])
-    days_left = (date.fromisoformat(t["deadline"]) - date.today()).days
-    d_text = f"D-{days_left}" if days_left >= 0 else f"D+{abs(days_left)}"
+    d_text = _d_day_text(t["deadline"])
     safe_name = html_mod.escape(t["name"])
+
+    # Tooltip text — use \n (rendered via white-space: pre-line CSS)
+    tooltip_text = (
+        f"{safe_name}\n"
+        f"Importance: {t['importance']}/10 · Urgency: {t['urgency']:.1f}/10\n"
+        f"Deadline: {t['deadline']} ({d_text})\n"
+        f"{qi['emoji']} {qi['label']}"
+    )
 
     scatter_data.append({
         "value": [t["importance"], t["urgency"]],
-        "name": (
-            f"<b>{safe_name}</b><br/>"
-            f"Importance: {t['importance']}/10 · "
-            f"Urgency: {t['urgency']:.1f}/10<br/>"
-            f"Deadline: {t['deadline']} ({d_text})<br/>"
-            f"{qi['emoji']} {qi['label']}"
-        ),
+        "name": tooltip_text,
         "itemStyle": {
             "color": t.get("color", "#4A90D9"),
             "borderColor": "#fff",
@@ -597,7 +593,7 @@ for t in tasks:
         },
     })
 
-# Quadrant background label data (markPoint)
+# Quadrant background labels
 q_label_data = []
 _positions = {
     "do_first": [7.75, 7.75],
@@ -620,7 +616,7 @@ for qk, coord in _positions.items():
         },
     })
 
-# Quadrant background area data (markArea)
+# Quadrant background areas
 mark_area_data = [
     [{"xAxis": 5, "yAxis": 5, "itemStyle": {"color": QUADRANT_META["do_first"]["bg"], "borderWidth": 0}},
      {"xAxis": 10.5, "yAxis": 10.5}],
@@ -635,10 +631,10 @@ mark_area_data = [
 chart_option = {
     "backgroundColor": "#fff",
     "grid": {
-        "left": 50,
+        "left": 55,
         "right": 20,
         "top": 40,
-        "bottom": 50,
+        "bottom": 55,
         "containLabel": False,
     },
     "tooltip": {
@@ -647,63 +643,60 @@ chart_option = {
         "backgroundColor": "rgba(255,255,255,0.96)",
         "borderColor": "#ddd",
         "textStyle": {"color": "#333", "fontSize": 13},
-        "extraCssText": "box-shadow: 0 2px 8px rgba(0,0,0,0.12); max-width: 280px;",
+        "extraCssText": "box-shadow: 0 2px 8px rgba(0,0,0,0.12); max-width: 280px; white-space: pre-line;",
     },
     "xAxis": {
         "name": "Importance →",
         "nameLocation": "middle",
-        "nameGap": 28,
-        "nameTextStyle": {"fontSize": 12, "color": "#888"},
+        "nameGap": 32,
+        "nameTextStyle": {"fontSize": 14, "fontWeight": "bold", "color": "#555"},
         "min": 0,
         "max": 10.5,
         "interval": 1,
-        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.04)"}},
-        "axisLine": {"lineStyle": {"color": "#ccc"}},
-        "axisTick": {"lineStyle": {"color": "#ccc"}},
-        "axisLabel": {"color": "#aaa", "fontSize": 11},
+        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.06)"}},
+        "axisLine": {"lineStyle": {"color": "#888", "width": 2}},
+        "axisTick": {"lineStyle": {"color": "#888", "width": 2}, "length": 6},
+        "axisLabel": {"color": "#555", "fontSize": 13, "fontWeight": "bold"},
     },
     "yAxis": {
         "name": "Urgency →",
         "nameLocation": "middle",
-        "nameGap": 35,
-        "nameTextStyle": {"fontSize": 12, "color": "#888"},
+        "nameGap": 40,
+        "nameTextStyle": {"fontSize": 14, "fontWeight": "bold", "color": "#555"},
         "min": 0,
         "max": 10.5,
         "interval": 1,
-        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.04)"}},
-        "axisLine": {"lineStyle": {"color": "#ccc"}},
-        "axisTick": {"lineStyle": {"color": "#ccc"}},
-        "axisLabel": {"color": "#aaa", "fontSize": 11},
+        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.06)"}},
+        "axisLine": {"lineStyle": {"color": "#888", "width": 2}},
+        "axisTick": {"lineStyle": {"color": "#888", "width": 2}, "length": 6},
+        "axisLabel": {"color": "#555", "fontSize": 13, "fontWeight": "bold"},
     },
     "toolbox": {
         "right": 12,
         "top": 5,
         "feature": {
-            "restore": {"show": True, "title": "뷰 초기화"},
+            "restore": {"show": True, "title": "Reset View"},
             "saveAsImage": {
                 "show": True,
-                "title": "이미지 저장",
+                "title": "Save as PNG",
                 "pixelRatio": 2,
                 "name": f"quadrant_chart_{date.today().isoformat()}",
             },
         },
-        "iconStyle": {"borderColor": "#999"},
+        "iconStyle": {"borderColor": "#888"},
     },
     "dataZoom": [
         {"type": "inside", "xAxisIndex": 0},
         {"type": "inside", "yAxisIndex": 0},
     ],
     "series": [
-        # Series 0: quadrant backgrounds, divider lines, quadrant labels (non-interactive)
+        # Series 0: backgrounds, dividers, quadrant labels (non-interactive)
         {
             "type": "scatter",
             "data": [],
             "silent": True,
             "z": 1,
-            "markArea": {
-                "silent": True,
-                "data": mark_area_data,
-            },
+            "markArea": {"silent": True, "data": mark_area_data},
             "markLine": {
                 "silent": True,
                 "symbol": "none",
@@ -711,12 +704,9 @@ chart_option = {
                 "data": [{"xAxis": 5}, {"yAxis": 5}],
                 "label": {"show": False},
             },
-            "markPoint": {
-                "silent": True,
-                "data": q_label_data,
-            },
+            "markPoint": {"silent": True, "data": q_label_data},
         },
-        # Series 1: task data points (interactive)
+        # Series 1: task blocks (interactive)
         {
             "type": "scatter",
             "symbol": "roundRect",
@@ -728,13 +718,12 @@ chart_option = {
     ],
 }
 
-# Render chart with click event detection
+# Render chart
 events = {
     "click": "function(params) { return (params.seriesIndex === 1 && params.dataIndex !== undefined) ? params.dataIndex : -1; }"
 }
 clicked = st_echarts(chart_option, events=events, height="600px", key="quadrant_chart")
 
-# Store clicked task index in session state
 if clicked is not None:
     try:
         idx = int(clicked)
@@ -742,6 +731,15 @@ if clicked is not None:
             st.session_state.selected_task_idx = idx
     except (TypeError, ValueError):
         pass
+
+# ── Task Detail Panel (shown on chart click or sidebar click) ─────────────────
+if tasks and "selected_task_idx" in st.session_state:
+    idx = st.session_state.selected_task_idx
+    if 0 <= idx < len(tasks):
+        _show_task_detail(tasks[idx])
+
+elif not tasks:
+    st.info("👈 Add your first task from the sidebar!")
 
 # ── Export Section ─────────────────────────────────────────────────────────────
 if tasks:
@@ -769,41 +767,74 @@ if tasks:
             use_container_width=True,
         )
 
-    st.caption("💡 차트 우측 상단 툴바의 📷 아이콘으로 PNG 이미지를 저장할 수 있습니다.")
+    st.caption("💡 Use the toolbar icons (top-right of chart) to reset view or save as PNG.")
 
-# ── Task Detail Panel (on click/tap) ─────────────────────────────────────────
-if tasks and "selected_task_idx" in st.session_state:
-    idx = st.session_state.selected_task_idx
-    if 0 <= idx < len(tasks):
-        task = tasks[idx]
-        qi = quadrant_info(task["importance"], task["urgency"])
-        days_left = (date.fromisoformat(task["deadline"]) - date.today()).days
+# ── Demo Mode Banner (below chart) ───────────────────────────────────────────
+if st.session_state.demo_mode:
+    st.divider()
+    with st.container(border=True):
+        st.markdown("#### 🎯 Demo Mode")
+        st.markdown(
+            "Example tasks are displayed on the chart. "
+            "Click a block to see its details, or explore the quadrants below."
+        )
 
-        st.divider()
-        st.subheader(f"{qi['emoji']} {task['name']}")
+        # 2x2 quadrant explanation grid
+        st.markdown("##### Quadrant Guide")
+        top1, top2 = st.columns(2)
+        with top1:
+            st.markdown(
+                '<div style="background:rgba(249,115,22,0.08); border-left:4px solid #EA580C; '
+                'padding:12px; border-radius:6px;">'
+                '<b>🟠 Delegate</b><br/>'
+                '<small>Urgent & Less Important</small><br/>'
+                'Assign to others or handle quickly.</div>',
+                unsafe_allow_html=True,
+            )
+        with top2:
+            st.markdown(
+                '<div style="background:rgba(239,68,68,0.08); border-left:4px solid #DC2626; '
+                'padding:12px; border-radius:6px;">'
+                '<b>🔴 Do First</b><br/>'
+                '<small>Urgent & Important</small><br/>'
+                'Act on these immediately.</div>',
+                unsafe_allow_html=True,
+            )
+        bot1, bot2 = st.columns(2)
+        with bot1:
+            st.markdown(
+                '<div style="background:rgba(34,197,94,0.08); border-left:4px solid #16A34A; '
+                'padding:12px; border-radius:6px;">'
+                '<b>🟢 Eliminate</b><br/>'
+                '<small>Less Urgent & Less Important</small><br/>'
+                'Consider dropping or postponing.</div>',
+                unsafe_allow_html=True,
+            )
+        with bot2:
+            st.markdown(
+                '<div style="background:rgba(59,130,246,0.08); border-left:4px solid #2563EB; '
+                'padding:12px; border-radius:6px;">'
+                '<b>🔵 Schedule</b><br/>'
+                '<small>Less Urgent & Important</small><br/>'
+                'Plan ahead and block time.</div>',
+                unsafe_allow_html=True,
+            )
 
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Importance", f"{task['importance']} / 10")
-        with c2:
-            st.metric("Urgency", f"{task['urgency']:.1f} / 10")
-        with c3:
-            if days_left >= 0:
-                st.metric("D‑Day", task["deadline"], delta=f"D-{days_left}")
-            else:
-                st.metric(
-                    "D‑Day",
-                    task["deadline"],
-                    delta=f"{abs(days_left)}일 초과",
-                    delta_color="inverse",
-                )
-        with c4:
-            st.metric("Quadrant", f"{qi['label']}")
+        st.markdown("")
+        st.caption(
+            "💡 **Urgency** is auto-calculated from the **Deadline**: "
+            "D-0 → 10 (most urgent) / D-30+ → 1 (least urgent)"
+        )
 
-        if task.get("description"):
-            st.info(task["description"])
-        else:
-            st.caption("No description.")
-
-elif not tasks:
-    st.info("👈 사이드바에서 첫 번째 Task를 추가해보세요!")
+        bc1, bc2, _ = st.columns([1, 1, 3])
+        with bc1:
+            if st.button("🚀 **Start Fresh**", use_container_width=True, type="primary"):
+                st.session_state.tasks = []
+                st.session_state.demo_mode = False
+                save_tasks([])
+                st.rerun()
+        with bc2:
+            if st.button("✏️ Continue with Examples", use_container_width=True):
+                st.session_state.demo_mode = False
+                save_tasks(st.session_state.tasks)
+                st.rerun()
