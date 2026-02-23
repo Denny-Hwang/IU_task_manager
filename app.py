@@ -91,6 +91,64 @@ def quadrant_info(importance, urgency):
     return QUADRANT_META[quadrant_key(importance, urgency)]
 
 
+def format_block_label(name, deadline_str):
+    """Format task name + D-day to fit inside chart block (2 lines max)."""
+    import unicodedata
+
+    def display_width(s):
+        """Calculate display width considering CJK double-width chars."""
+        w = 0
+        for ch in s:
+            if unicodedata.east_asian_width(ch) in ("W", "F"):
+                w += 2
+            else:
+                w += 1
+        return w
+
+    def truncate(s, max_w):
+        """Truncate string to max display width, adding … if needed."""
+        w = 0
+        for i, ch in enumerate(s):
+            cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+            if w + cw > max_w:
+                return s[:i] + "…"
+            w += cw
+        return s
+
+    MAX_WIDTH = 12  # display-width units per line
+
+    # D-day text
+    days = (date.fromisoformat(deadline_str) - date.today()).days
+    d_text = f"D-{days}" if days >= 0 else f"D+{abs(days)}"
+
+    name_w = display_width(name)
+    if name_w <= MAX_WIDTH:
+        return f"{name}<br>{d_text}"
+
+    # Find the best space-break that balances both lines
+    candidates = []
+    for i, ch in enumerate(name):
+        if ch == " " and 0 < i < len(name) - 1:
+            lw = display_width(name[:i])
+            rw = display_width(name[i + 1:])
+            if lw <= MAX_WIDTH:
+                candidates.append((i, abs(lw - rw)))
+
+    if candidates:
+        # Pick break closest to balanced (min difference)
+        # On tie, prefer later break (longer line1, more natural)
+        best_break = min(candidates, key=lambda x: (x[1], -x[0]))[0]
+        line1 = name[:best_break]
+        line2 = name[best_break + 1:]
+        if display_width(line2) > MAX_WIDTH:
+            line2 = truncate(line2, MAX_WIDTH - 1)
+        return f"{line1}<br>{line2}"
+
+    # No good space break — hard truncate into 2 lines
+    line1 = truncate(name, MAX_WIDTH)
+    return f"{line1}<br>{d_text}"
+
+
 # ─── Example Tasks ─────────────────────────────────────────────────────────────
 def generate_example_tasks():
     today = date.today()
@@ -502,24 +560,23 @@ fig.add_vline(x=5, line=dict(color="rgba(0,0,0,0.15)", width=2, dash="dot"))
 # Task markers
 tasks = st.session_state.tasks
 if tasks:
+    block_labels = [format_block_label(t["name"], t["deadline"]) for t in tasks]
+
     fig.add_trace(
         go.Scatter(
             x=[t["importance"] for t in tasks],
             y=[t["urgency"] for t in tasks],
             mode="markers+text",
             marker=dict(
-                size=40,
+                size=60,
                 color=[t.get("color", "#4A90D9") for t in tasks],
                 symbol="square",
                 line=dict(width=2, color="white"),
                 opacity=0.88,
             ),
-            text=[
-                t["name"][:10] + ("…" if len(t["name"]) > 10 else "")
-                for t in tasks
-            ],
+            text=block_labels,
             textposition="middle center",
-            textfont=dict(size=10, color="white", family="Arial Black"),
+            textfont=dict(size=9, color="white", family="Arial Black"),
             hovertemplate=[
                 f"<b>{t['name']}</b><br>"
                 f"Importance: {t['importance']}/10<br>"
@@ -548,7 +605,7 @@ fig.update_layout(
         gridcolor="rgba(0,0,0,0.04)",
         zeroline=False,
     ),
-    height=650,
+    height=700,
     margin=dict(l=60, r=30, t=30, b=60),
     plot_bgcolor="white",
     paper_bgcolor="white",
