@@ -1,49 +1,50 @@
-# 📊 Quadrant Task Manager
+# Quadrant Task Manager
 
-Eisenhower Matrix 기반의 인터랙티브 Task 관리 앱입니다.
-**Importance(중요도)** × **Urgency(긴급도)** 4사분면에 Task를 배치하고, 클릭하여 상세 정보를 확인할 수 있습니다.
+An interactive Eisenhower Matrix task manager built with **Streamlit** and **ECharts**.
+Place tasks on a 4-quadrant chart by **Importance** × **Urgency**, then tap/click any block to see full details.
 
-## 실행 방법
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## 주요 기능
+## Features
 
-### 4사분면 차트
-| 사분면 | 기준 | 의미 |
+### 4-Quadrant Chart (ECharts)
+| Quadrant | Criteria | Meaning |
 |:---:|:---:|:---:|
-| 🔴 **Do First** | 긴급 + 중요 | 즉시 처리 |
-| 🟠 **Delegate** | 긴급 + 덜 중요 | 위임 가능 |
-| 🔵 **Schedule** | 덜 긴급 + 중요 | 일정 계획 |
-| 🟢 **Eliminate** | 덜 긴급 + 덜 중요 | 제거 고려 |
+| Do First | Urgent + Important | Handle immediately |
+| Delegate | Urgent + Less important | Can be delegated |
+| Schedule | Less urgent + Important | Plan ahead |
+| Eliminate | Less urgent + Less important | Consider removing |
 
-- **X축**: Importance (중요도, 1~10 수동 입력)
-- **Y축**: Urgency (긴급도, 1~10 Deadline으로부터 자동 계산)
-  - D-0 → 10 (최대 긴급) / D-30+ → 1 (최소 긴급)
+- **X-axis**: Importance (1–10, manual input)
+- **Y-axis**: Urgency (1–10, auto-calculated from deadline)
+  - D-0 → 10 (most urgent) / D-30+ → 1 (least urgent)
 
-### 인터랙티브 UI
-- Task 블록을 **클릭**하면 하단에 상세 정보 패널 표시
-- **Hover**로 Task 요약 확인
-- 사이드바에서 Task 추가/삭제
+### Mobile-First Design
+- **ECharts** — lightweight, touch-friendly charting (replaced Plotly)
+- **Tap to view** — tap any task block to see full details below the chart
+- **Pinch to zoom** — native touch zoom via ECharts dataZoom
+- **Reset view** — toolbar button restores the original viewport after panning/zooming
+- **CJK-aware labels** — smart 2-line text wrapping that respects double-width characters
 
-### 예제 모드 (Demo Mode)
-- 첫 실행 시 8개 예제 Task가 4사분면에 배치되어 사용법을 안내
-- **새로 시작하기** — 예제 삭제 후 빈 상태로 시작
-- **예제에 이어서 작업** — 예제를 유지하며 내 Task 추가
+### Demo Mode
+- 8 example tasks pre-loaded across all 4 quadrants
+- **Start fresh** — clear examples and begin with an empty chart
+- **Continue with examples** — keep the examples and add your own tasks
 
 ### Export
-| 포맷 | 설명 |
+| Format | Description |
 |:---:|:---|
-| 📊 **Excel (.xlsx)** | Task Summary + Gantt Chart (일별 타임라인) + Milestones (기한순 상태별 정리) |
-| 📸 **PNG** | 4사분면 차트를 고해상도 이미지로 저장 |
-| 🌐 **HTML** | 인터랙티브 Plotly 차트를 HTML 파일로 저장 |
+| Excel (.xlsx) | Task Summary + Gantt Chart (daily timeline) + Milestones (sorted by deadline) |
+| HTML | Interactive ECharts chart as a standalone web page |
+| PNG | Use the chart toolbar's save-as-image button (built into the chart) |
 
-## 기술 스택
+## Tech Stack
 
-- [Streamlit](https://streamlit.io/) — UI 프레임워크
-- [Plotly](https://plotly.com/python/) — 인터랙티브 차트
-- [openpyxl](https://openpyxl.readthedocs.io/) — Excel 내보내기
-- [Kaleido](https://github.com/nicholasgasior/kaleido) — 차트 이미지 변환
+- [Streamlit](https://streamlit.io/) — UI framework
+- [ECharts](https://echarts.apache.org/) via [streamlit-echarts](https://github.com/andfanilo/streamlit-echarts) — interactive chart
+- [openpyxl](https://openpyxl.readthedocs.io/) — Excel export

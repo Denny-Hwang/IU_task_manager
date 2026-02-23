@@ -1,9 +1,11 @@
 import streamlit as st
-import plotly.graph_objects as go
+from streamlit_echarts import st_echarts
 from datetime import date, timedelta
 import json
 import os
 import io
+import html as html_mod
+import unicodedata
 
 # ─── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -19,6 +21,7 @@ QUADRANT_META = {
     "do_first": {
         "bg": "rgba(239,68,68,0.10)",
         "color": "#DC2626",
+        "color_alpha": "rgba(220,38,38,0.3)",
         "fill": "FFCCCC",
         "label": "Do First",
         "sub": "긴급 & 중요",
@@ -27,6 +30,7 @@ QUADRANT_META = {
     "delegate": {
         "bg": "rgba(249,115,22,0.10)",
         "color": "#EA580C",
+        "color_alpha": "rgba(234,88,12,0.3)",
         "fill": "FFE0CC",
         "label": "Delegate",
         "sub": "긴급 & 덜 중요",
@@ -35,6 +39,7 @@ QUADRANT_META = {
     "schedule": {
         "bg": "rgba(59,130,246,0.10)",
         "color": "#2563EB",
+        "color_alpha": "rgba(37,99,235,0.3)",
         "fill": "CCE0FF",
         "label": "Schedule",
         "sub": "덜 긴급 & 중요",
@@ -43,6 +48,7 @@ QUADRANT_META = {
     "eliminate": {
         "bg": "rgba(34,197,94,0.10)",
         "color": "#16A34A",
+        "color_alpha": "rgba(22,163,74,0.3)",
         "fill": "CCFFCC",
         "label": "Eliminate",
         "sub": "덜 긴급 & 덜 중요",
@@ -68,7 +74,7 @@ def save_tasks(tasks):
 
 
 def calc_urgency(deadline_str: str) -> float:
-    """Map deadline → urgency 1‑10. Closer deadline = higher urgency."""
+    """Map deadline to urgency 1-10. Closer deadline = higher urgency."""
     days = (date.fromisoformat(deadline_str) - date.today()).days
     if days <= 0:
         return 10.0
@@ -91,62 +97,61 @@ def quadrant_info(importance, urgency):
     return QUADRANT_META[quadrant_key(importance, urgency)]
 
 
+# ─── Text Helpers ──────────────────────────────────────────────────────────────
+def _display_width(s):
+    """Calculate display width considering CJK double-width chars."""
+    w = 0
+    for ch in s:
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def _truncate(s, max_w):
+    """Truncate string to max display width, adding ellipsis if needed."""
+    w = 0
+    for i, ch in enumerate(s):
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > max_w:
+            return s[:i] + "…"
+        w += cw
+    return s
+
+
 def format_block_label(name, deadline_str):
-    """Format task name + D-day to fit inside chart block (2 lines max)."""
-    import unicodedata
+    """Format task name + D-day to fit inside chart block (2 lines, \\n separated)."""
+    MAX_WIDTH = 12
 
-    def display_width(s):
-        """Calculate display width considering CJK double-width chars."""
-        w = 0
-        for ch in s:
-            if unicodedata.east_asian_width(ch) in ("W", "F"):
-                w += 2
-            else:
-                w += 1
-        return w
-
-    def truncate(s, max_w):
-        """Truncate string to max display width, adding … if needed."""
-        w = 0
-        for i, ch in enumerate(s):
-            cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-            if w + cw > max_w:
-                return s[:i] + "…"
-            w += cw
-        return s
-
-    MAX_WIDTH = 12  # display-width units per line
-
-    # D-day text
     days = (date.fromisoformat(deadline_str) - date.today()).days
     d_text = f"D-{days}" if days >= 0 else f"D+{abs(days)}"
 
-    name_w = display_width(name)
+    name_w = _display_width(name)
     if name_w <= MAX_WIDTH:
-        return f"{name}<br>{d_text}"
+        return f"{name}\n{d_text}"
 
     # Find the best space-break that balances both lines
     candidates = []
     for i, ch in enumerate(name):
         if ch == " " and 0 < i < len(name) - 1:
-            lw = display_width(name[:i])
-            rw = display_width(name[i + 1:])
+            lw = _display_width(name[:i])
+            rw = _display_width(name[i + 1:])
             if lw <= MAX_WIDTH:
                 candidates.append((i, abs(lw - rw)))
 
     if candidates:
-        # Pick break closest to balanced (min difference)
         # On tie, prefer later break (longer line1, more natural)
         best_break = min(candidates, key=lambda x: (x[1], -x[0]))[0]
         line1 = name[:best_break]
         line2 = name[best_break + 1:]
-        if display_width(line2) > MAX_WIDTH:
-            line2 = truncate(line2, MAX_WIDTH - 1)
-        return f"{line1}<br>{line2}"
+        if _display_width(line2) > MAX_WIDTH:
+            line2 = _truncate(line2, MAX_WIDTH - 1)
+        return f"{line1}\n{line2}"
 
-    # No good space break — hard truncate into 2 lines
-    line1 = truncate(name, MAX_WIDTH)
-    return f"{line1}<br>{d_text}"
+    # No good space break — hard truncate
+    line1 = _truncate(name, MAX_WIDTH)
+    return f"{line1}\n{d_text}"
 
 
 # ─── Example Tasks ─────────────────────────────────────────────────────────────
@@ -285,7 +290,6 @@ def build_excel(tasks):
         date_range.append(cur)
         cur += timedelta(days=1)
 
-    # Headers
     fixed_headers = ["Task", "Quadrant", "Deadline"]
     for j, h in enumerate(fixed_headers, 1):
         cell = ws2.cell(1, j, h)
@@ -310,7 +314,6 @@ def build_excel(tasks):
     ws2.column_dimensions["B"].width = 14
     ws2.column_dimensions["C"].width = 12
 
-    # Task rows
     sorted_gantt = sorted(tasks, key=lambda t: t["deadline"])
     for i, task in enumerate(sorted_gantt, 2):
         qk = quadrant_key(task["importance"], task["urgency"])
@@ -395,8 +398,32 @@ def build_excel(tasks):
     return buf
 
 
-def build_chart_html(fig):
-    return fig.to_html(include_plotlyjs=True, full_html=True)
+def build_chart_html(chart_option):
+    """Generate standalone ECharts HTML page from chart option dict."""
+    option_json = json.dumps(chart_option, ensure_ascii=False).replace("</", "<\\/")
+    return (
+        '<!DOCTYPE html>\n'
+        '<html lang="en">\n'
+        '<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<title>Quadrant Task Manager</title>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>\n'
+        '<style>\n'
+        '  body { margin:0; padding:0; background:#fff; }\n'
+        '  #chart { width:100vw; height:100vh; }\n'
+        '</style>\n'
+        '</head>\n'
+        '<body>\n'
+        '<div id="chart"></div>\n'
+        '<script>\n'
+        '  var chart = echarts.init(document.getElementById("chart"));\n'
+        f'  chart.setOption({option_json});\n'
+        '  window.addEventListener("resize", function() { chart.resize(); });\n'
+        '</script>\n'
+        '</body>\n'
+        '</html>'
+    )
 
 
 # ─── Session State ─────────────────────────────────────────────────────────────
@@ -432,7 +459,6 @@ with st.sidebar:
 
         if submitted:
             if name.strip():
-                # Exit demo mode when user adds their own task
                 if st.session_state.demo_mode:
                     st.session_state.demo_mode = False
                 st.session_state.tasks.append(
@@ -468,6 +494,8 @@ with st.sidebar:
         with c2:
             if st.button("🗑", key=f"del_{i}", help="Delete"):
                 st.session_state.tasks.pop(i)
+                if "selected_task_idx" in st.session_state:
+                    del st.session_state["selected_task_idx"]
                 save_tasks(st.session_state.tasks)
                 st.rerun()
 
@@ -478,12 +506,16 @@ with st.sidebar:
         if st.button("🗑️ Clear All", use_container_width=True, help="Delete all tasks"):
             st.session_state.tasks = []
             st.session_state.demo_mode = False
+            if "selected_task_idx" in st.session_state:
+                del st.session_state["selected_task_idx"]
             save_tasks([])
             st.rerun()
     with rc2:
         if st.button("📦 Load Examples", use_container_width=True, help="Load example tasks"):
             st.session_state.tasks = generate_example_tasks()
             st.session_state.demo_mode = True
+            if "selected_task_idx" in st.session_state:
+                del st.session_state["selected_task_idx"]
             if os.path.exists(DATA_FILE):
                 os.remove(DATA_FILE)
             st.rerun()
@@ -493,7 +525,7 @@ with st.sidebar:
 st.title("📊 Quadrant Task Manager")
 st.caption(
     "Importance (중요도) × Urgency (긴급도) · "
-    "Click a task block to view details"
+    "블록을 탭/클릭하면 상세 정보가 표시됩니다"
 )
 
 # ── Demo Mode Banner ───────────────────────────────────────────────────────────
@@ -525,108 +557,197 @@ if st.session_state.demo_mode:
                 save_tasks(st.session_state.tasks)
                 st.rerun()
 
-# ── Build Plotly Figure ────────────────────────────────────────────────────────
-fig = go.Figure()
-
-# Quadrant backgrounds
-_qdefs = [
-    (5, 5, 10.5, 10.5, "do_first"),
-    (0, 5, 5, 10.5, "delegate"),
-    (5, 0, 10.5, 5, "schedule"),
-    (0, 0, 5, 5, "eliminate"),
-]
-for x0, y0, x1, y1, qk in _qdefs:
-    qm = QUADRANT_META[qk]
-    fig.add_shape(
-        type="rect",
-        x0=x0, y0=y0, x1=x1, y1=y1,
-        fillcolor=qm["bg"],
-        line=dict(width=0),
-        layer="below",
-    )
-    fig.add_annotation(
-        x=(x0 + x1) / 2,
-        y=(y0 + y1) / 2,
-        text=f"<b>{qm['label']}</b><br><span style='font-size:11px'>{qm['sub']}</span>",
-        showarrow=False,
-        font=dict(size=16, color=qm["color"]),
-        opacity=0.3,
-    )
-
-# Dividers
-fig.add_hline(y=5, line=dict(color="rgba(0,0,0,0.15)", width=2, dash="dot"))
-fig.add_vline(x=5, line=dict(color="rgba(0,0,0,0.15)", width=2, dash="dot"))
-
-# Task markers
+# ── Build ECharts ──────────────────────────────────────────────────────────────
 tasks = st.session_state.tasks
-if tasks:
-    block_labels = [format_block_label(t["name"], t["deadline"]) for t in tasks]
 
-    fig.add_trace(
-        go.Scatter(
-            x=[t["importance"] for t in tasks],
-            y=[t["urgency"] for t in tasks],
-            mode="markers+text",
-            marker=dict(
-                size=60,
-                color=[t.get("color", "#4A90D9") for t in tasks],
-                symbol="square",
-                line=dict(width=2, color="white"),
-                opacity=0.88,
-            ),
-            text=block_labels,
-            textposition="middle center",
-            textfont=dict(size=9, color="white", family="Arial Black"),
-            hovertemplate=[
-                f"<b>{t['name']}</b><br>"
-                f"Importance: {t['importance']}/10<br>"
-                f"Urgency: {t['urgency']:.1f}/10<br>"
-                f"Deadline: {t['deadline']}<extra></extra>"
-                for t in tasks
-            ],
-            showlegend=False,
-        )
-    )
+# Prepare scatter data for task blocks
+scatter_data = []
+for t in tasks:
+    qi = quadrant_info(t["importance"], t["urgency"])
+    label_text = format_block_label(t["name"], t["deadline"])
+    days_left = (date.fromisoformat(t["deadline"]) - date.today()).days
+    d_text = f"D-{days_left}" if days_left >= 0 else f"D+{abs(days_left)}"
+    safe_name = html_mod.escape(t["name"])
 
-fig.update_layout(
-    xaxis=dict(
-        title=dict(text="Importance (중요도) →", font=dict(size=14)),
-        range=[-0.3, 11],
-        dtick=1,
-        showgrid=True,
-        gridcolor="rgba(0,0,0,0.04)",
-        zeroline=False,
-    ),
-    yaxis=dict(
-        title=dict(text="Urgency (긴급도) →", font=dict(size=14)),
-        range=[-0.3, 11],
-        dtick=1,
-        showgrid=True,
-        gridcolor="rgba(0,0,0,0.04)",
-        zeroline=False,
-    ),
-    height=700,
-    margin=dict(l=60, r=30, t=30, b=60),
-    plot_bgcolor="white",
-    paper_bgcolor="white",
-    hoverlabel=dict(bgcolor="white", font_size=13, bordercolor="#ccc"),
-    dragmode="pan",
-)
+    scatter_data.append({
+        "value": [t["importance"], t["urgency"]],
+        "name": (
+            f"<b>{safe_name}</b><br/>"
+            f"Importance: {t['importance']}/10 · "
+            f"Urgency: {t['urgency']:.1f}/10<br/>"
+            f"Deadline: {t['deadline']} ({d_text})<br/>"
+            f"{qi['emoji']} {qi['label']}"
+        ),
+        "itemStyle": {
+            "color": t.get("color", "#4A90D9"),
+            "borderColor": "#fff",
+            "borderWidth": 2,
+            "opacity": 0.9,
+        },
+        "label": {
+            "show": True,
+            "position": "inside",
+            "formatter": label_text,
+            "color": "#fff",
+            "fontSize": 10,
+            "fontWeight": "bold",
+            "lineHeight": 14,
+            "width": 72,
+            "overflow": "truncate",
+        },
+    })
 
-# Render chart with click detection
-event = st.plotly_chart(
-    fig,
-    width="stretch",
-    on_select="rerun",
-    selection_mode="points",
-    key="quadrant_chart",
-)
+# Quadrant background label data (markPoint)
+q_label_data = []
+_positions = {
+    "do_first": [7.75, 7.75],
+    "delegate": [2.5, 7.75],
+    "schedule": [7.75, 2.5],
+    "eliminate": [2.5, 2.5],
+}
+for qk, coord in _positions.items():
+    qm = QUADRANT_META[qk]
+    q_label_data.append({
+        "coord": coord,
+        "symbol": "none",
+        "label": {
+            "show": True,
+            "formatter": f"{qm['label']}\n{qm['sub']}",
+            "color": qm["color_alpha"],
+            "fontSize": 14,
+            "fontWeight": "bold",
+            "lineHeight": 20,
+        },
+    })
+
+# Quadrant background area data (markArea)
+mark_area_data = [
+    [{"xAxis": 5, "yAxis": 5, "itemStyle": {"color": QUADRANT_META["do_first"]["bg"], "borderWidth": 0}},
+     {"xAxis": 10.5, "yAxis": 10.5}],
+    [{"xAxis": 0, "yAxis": 5, "itemStyle": {"color": QUADRANT_META["delegate"]["bg"], "borderWidth": 0}},
+     {"xAxis": 5, "yAxis": 10.5}],
+    [{"xAxis": 5, "yAxis": 0, "itemStyle": {"color": QUADRANT_META["schedule"]["bg"], "borderWidth": 0}},
+     {"xAxis": 10.5, "yAxis": 5}],
+    [{"xAxis": 0, "yAxis": 0, "itemStyle": {"color": QUADRANT_META["eliminate"]["bg"], "borderWidth": 0}},
+     {"xAxis": 5, "yAxis": 5}],
+]
+
+chart_option = {
+    "backgroundColor": "#fff",
+    "grid": {
+        "left": 50,
+        "right": 20,
+        "top": 40,
+        "bottom": 50,
+        "containLabel": False,
+    },
+    "tooltip": {
+        "trigger": "item",
+        "formatter": "{b}",
+        "backgroundColor": "rgba(255,255,255,0.96)",
+        "borderColor": "#ddd",
+        "textStyle": {"color": "#333", "fontSize": 13},
+        "extraCssText": "box-shadow: 0 2px 8px rgba(0,0,0,0.12); max-width: 280px;",
+    },
+    "xAxis": {
+        "name": "Importance →",
+        "nameLocation": "middle",
+        "nameGap": 28,
+        "nameTextStyle": {"fontSize": 12, "color": "#888"},
+        "min": 0,
+        "max": 10.5,
+        "interval": 1,
+        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.04)"}},
+        "axisLine": {"lineStyle": {"color": "#ccc"}},
+        "axisTick": {"lineStyle": {"color": "#ccc"}},
+        "axisLabel": {"color": "#aaa", "fontSize": 11},
+    },
+    "yAxis": {
+        "name": "Urgency →",
+        "nameLocation": "middle",
+        "nameGap": 35,
+        "nameTextStyle": {"fontSize": 12, "color": "#888"},
+        "min": 0,
+        "max": 10.5,
+        "interval": 1,
+        "splitLine": {"lineStyle": {"color": "rgba(0,0,0,0.04)"}},
+        "axisLine": {"lineStyle": {"color": "#ccc"}},
+        "axisTick": {"lineStyle": {"color": "#ccc"}},
+        "axisLabel": {"color": "#aaa", "fontSize": 11},
+    },
+    "toolbox": {
+        "right": 12,
+        "top": 5,
+        "feature": {
+            "restore": {"show": True, "title": "뷰 초기화"},
+            "saveAsImage": {
+                "show": True,
+                "title": "이미지 저장",
+                "pixelRatio": 2,
+                "name": f"quadrant_chart_{date.today().isoformat()}",
+            },
+        },
+        "iconStyle": {"borderColor": "#999"},
+    },
+    "dataZoom": [
+        {"type": "inside", "xAxisIndex": 0},
+        {"type": "inside", "yAxisIndex": 0},
+    ],
+    "series": [
+        # Series 0: quadrant backgrounds, divider lines, quadrant labels (non-interactive)
+        {
+            "type": "scatter",
+            "data": [],
+            "silent": True,
+            "z": 1,
+            "markArea": {
+                "silent": True,
+                "data": mark_area_data,
+            },
+            "markLine": {
+                "silent": True,
+                "symbol": "none",
+                "lineStyle": {"color": "rgba(0,0,0,0.15)", "width": 1.5, "type": "dashed"},
+                "data": [{"xAxis": 5}, {"yAxis": 5}],
+                "label": {"show": False},
+            },
+            "markPoint": {
+                "silent": True,
+                "data": q_label_data,
+            },
+        },
+        # Series 1: task data points (interactive)
+        {
+            "type": "scatter",
+            "symbol": "roundRect",
+            "symbolSize": [80, 48],
+            "data": scatter_data,
+            "z": 2,
+            "animationDuration": 500,
+        },
+    ],
+}
+
+# Render chart with click event detection
+events = {
+    "click": "function(params) { return (params.seriesIndex === 1 && params.dataIndex !== undefined) ? params.dataIndex : -1; }"
+}
+clicked = st_echarts(chart_option, events=events, height="600px", key="quadrant_chart")
+
+# Store clicked task index in session state
+if clicked is not None:
+    try:
+        idx = int(clicked)
+        if 0 <= idx < len(tasks):
+            st.session_state.selected_task_idx = idx
+    except (TypeError, ValueError):
+        pass
 
 # ── Export Section ─────────────────────────────────────────────────────────────
 if tasks:
     st.divider()
     st.subheader("📥 Export")
-    ex1, ex2, ex3 = st.columns(3)
+    ex1, ex2 = st.columns(2)
 
     with ex1:
         excel_buf = build_excel(tasks)
@@ -639,20 +760,7 @@ if tasks:
         )
 
     with ex2:
-        try:
-            png_bytes = fig.to_image(format="png", width=1400, height=750, scale=2)
-            st.download_button(
-                "📸 Chart Screenshot (PNG)",
-                data=png_bytes,
-                file_name=f"quadrant_chart_{date.today().isoformat()}.png",
-                mime="image/png",
-                use_container_width=True,
-            )
-        except Exception:
-            st.info("PNG export requires `kaleido` package.")
-
-    with ex3:
-        html_str = build_chart_html(fig)
+        html_str = build_chart_html(chart_option)
         st.download_button(
             "🌐 Interactive Chart (HTML)",
             data=html_str,
@@ -661,11 +769,11 @@ if tasks:
             use_container_width=True,
         )
 
-# ── Task Detail Panel (on click) ──────────────────────────────────────────────
-if tasks and event and event.selection and event.selection.points:
-    pt = event.selection.points[0]
-    idx = pt.get("point_index", pt.get("point_number", -1))
+    st.caption("💡 차트 우측 상단 툴바의 📷 아이콘으로 PNG 이미지를 저장할 수 있습니다.")
 
+# ── Task Detail Panel (on click/tap) ─────────────────────────────────────────
+if tasks and "selected_task_idx" in st.session_state:
+    idx = st.session_state.selected_task_idx
     if 0 <= idx < len(tasks):
         task = tasks[idx]
         qi = quadrant_info(task["importance"], task["urgency"])
